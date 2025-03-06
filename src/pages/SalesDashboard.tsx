@@ -24,7 +24,6 @@ import { createClient } from "@supabase/supabase-js";
 // Initialize Supabase client
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
-
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 const SalesDashboard = () => {
@@ -42,20 +41,17 @@ const SalesDashboard = () => {
     averageSaleGrowth: "+0%",
   });
 
-  // Add new order form state
   const [showAddModal, setShowAddModal] = useState(false);
   const [newOrder, setNewOrder] = useState({
-    customer: "",
+    customer_name: "", // Adjusted to match hypothetical column name
     product: "",
-    amount: "",
+    order_amount: "", // Adjusted to match hypothetical column name
     status: "Pending",
   });
 
-  // Delete confirmation state
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [orderToDelete, setOrderToDelete] = useState(null);
 
-  // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
   const [totalRecords, setTotalRecords] = useState(0);
@@ -64,13 +60,10 @@ const SalesDashboard = () => {
   // Fetch orders from Supabase
   const fetchOrders = async () => {
     setIsLoading(true);
-
     try {
-      // Calculate pagination
       const from = (currentPage - 1) * recordsPerPage;
       const to = from + recordsPerPage - 1;
 
-      // Fetch orders with pagination
       const {
         data: ordersData,
         error,
@@ -78,16 +71,15 @@ const SalesDashboard = () => {
       } = await supabase
         .from("orders")
         .select("*", { count: "exact" })
-        .ilike("customer", `%${searchQuery}%`)
+        .ilike("customer_name", `%${searchQuery}%`) // Adjusted column name
         .order("created_at", { ascending: false })
         .range(from, to);
 
       if (error) {
-        console.error("Error fetching orders:", error);
-        return;
+        console.error("Supabase fetchOrders error:", error);
+        throw error;
       }
 
-      // Format date for display
       const formattedOrders = ordersData.map((order) => ({
         ...order,
         date: new Date(order.created_at).toLocaleDateString("en-US", {
@@ -95,19 +87,17 @@ const SalesDashboard = () => {
           month: "short",
           year: "numeric",
         }),
+        customer: order.customer_name, // Map to expected key
+        amount: order.order_amount, // Map to expected key
       }));
 
       setOrders(formattedOrders);
+      setTotalRecords(count || 0);
+      setTotalPages(Math.ceil(count / recordsPerPage) || 1);
 
-      if (count) {
-        setTotalRecords(count);
-        setTotalPages(Math.ceil(count / recordsPerPage));
-      }
-
-      // Fetch statistics
       await fetchStatistics();
     } catch (err) {
-      console.error("Error in fetch operation:", err);
+      console.error("Full error in fetchOrders:", err.message, err.details);
     } finally {
       setIsLoading(false);
     }
@@ -116,92 +106,116 @@ const SalesDashboard = () => {
   // Fetch dashboard statistics
   const fetchStatistics = async () => {
     try {
-      // Get total sales - Sum of all order amounts
       const { data: salesData, error: salesError } = await supabase
         .from("orders")
-        .select("amount");
+        .select("order_amount"); // Adjusted column name
 
-      if (salesError) throw salesError;
+      if (salesError) {
+        console.error("Supabase sales error:", salesError);
+        throw salesError;
+      }
 
-      const totalSales = salesData.reduce(
-        (sum, order) => sum + parseFloat(order.amount.replace("$", "")),
-        0
-      );
+      if (!salesData || salesData.length === 0) {
+        setStats({
+          totalSales: "Frw 0",
+          totalOrders: "0",
+          totalCustomers: "0",
+          averageSale: "Frw 0",
+          salesGrowth: "+0%",
+          ordersGrowth: "+0%",
+          customersGrowth: "+0%",
+          averageSaleGrowth: "+0%",
+        });
+        return;
+      }
 
-      // Get customer count - Unique customers
+      const totalSales = salesData.reduce((sum, order) => {
+        const amount = parseFloat(order.order_amount.replace("Frw ", ""));
+        return sum + (isNaN(amount) ? 0 : amount);
+      }, 0);
+
       const { data: customersData, error: customersError } = await supabase
         .from("orders")
-        .select("customer")
-        .order("customer");
+        .select("customer_name") // Adjusted column name
+        .order("customer_name");
 
-      if (customersError) throw customersError;
+      if (customersError) {
+        console.error("Supabase customers error:", customersError);
+        throw customersError;
+      }
 
       const uniqueCustomers = new Set(
-        customersData.map((order) => order.customer)
+        customersData.map((order) => order.customer_name)
       ).size;
 
-      // Calculate average sale
-      const averageSale = totalSales / salesData.length;
+      const averageSale =
+        salesData.length > 0 ? totalSales / salesData.length : 0;
 
-      // For growth, we'd normally compare with last month's data
-      // This is simplified for this example
       setStats({
-        totalSales: `$${totalSales.toFixed(2)}`,
+        totalSales: `Frw ${totalSales.toFixed(2)}`,
         totalOrders: salesData.length.toString(),
         totalCustomers: uniqueCustomers.toString(),
-        averageSale: `$${averageSale.toFixed(2)}`,
+        averageSale: `Frw ${averageSale.toFixed(2)}`,
         salesGrowth: "+8.5%",
         ordersGrowth: "+5.2%",
         customersGrowth: "+2.8%",
         averageSaleGrowth: "-0.5%",
       });
     } catch (err) {
-      console.error("Error fetching statistics:", err);
+      console.error("Full error in fetchStatistics:", err.message, err.details);
     }
   };
 
   // Add new order
   const addOrder = async () => {
-    if (!newOrder.customer || !newOrder.product || !newOrder.amount) {
+    if (
+      !newOrder.customer_name ||
+      !newOrder.product ||
+      !newOrder.order_amount
+    ) {
       alert("Please fill all required fields");
       return;
     }
 
     try {
-      // Format amount to include dollar sign if needed
-      const formattedAmount = newOrder.amount.startsWith("$")
-        ? newOrder.amount
-        : `$${newOrder.amount}`;
+      const numericAmount = parseFloat(newOrder.order_amount);
+      if (isNaN(numericAmount)) {
+        throw new Error("Amount must be a valid number");
+      }
+
+      const formattedAmount = `Frw ${numericAmount.toFixed(2)}`;
+
+      const orderData = {
+        customer_name: newOrder.customer_name.trim(), // Adjusted column name
+        product: newOrder.product.trim(),
+        order_amount: formattedAmount, // Adjusted column name
+        status: newOrder.status,
+        created_at: new Date().toISOString(),
+      };
+
+      console.log("Inserting order:", orderData);
 
       const { data, error } = await supabase
         .from("orders")
-        .insert([
-          {
-            customer: newOrder.customer,
-            product: newOrder.product,
-            amount: formattedAmount,
-            status: newOrder.status,
-            created_at: new Date().toISOString(),
-          },
-        ])
+        .insert([orderData])
         .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase addOrder error:", error);
+        throw error;
+      }
 
-      // Reset form and close modal
       setNewOrder({
-        customer: "",
+        customer_name: "", // Adjusted key
         product: "",
-        amount: "",
+        order_amount: "", // Adjusted key
         status: "Pending",
       });
       setShowAddModal(false);
-
-      // Refresh orders
       fetchOrders();
     } catch (err) {
-      console.error("Error adding order:", err);
-      alert("Failed to add order");
+      console.error("Full error in addOrder:", err.message, err.details);
+      alert(`Failed to add order: ${err.message}`);
     }
   };
 
@@ -215,24 +229,24 @@ const SalesDashboard = () => {
         .delete()
         .eq("id", orderToDelete);
 
-      if (error) throw error;
+      if (error) {
+        console.error("Supabase deleteOrder error:", error);
+        throw error;
+      }
 
-      // Close modal and refresh orders
       setShowDeleteModal(false);
       setOrderToDelete(null);
       fetchOrders();
     } catch (err) {
-      console.error("Error deleting order:", err);
-      alert("Failed to delete order");
+      console.error("Full error in deleteOrder:", err.message, err.details);
+      alert(`Failed to delete order: ${err.message}`);
     }
   };
 
-  // Effect for initial load and search
   useEffect(() => {
     fetchOrders();
   }, [searchQuery, currentPage]);
 
-  // Stats cards data
   const statsCards = [
     {
       id: 1,
@@ -287,36 +301,20 @@ const SalesDashboard = () => {
     }
   };
 
-  // Generate page numbers for pagination
   const generatePageNumbers = () => {
     const pageNumbers = [];
     const maxVisiblePages = 3;
 
     if (totalPages <= maxVisiblePages) {
-      // Show all pages if total pages is less than max visible
       for (let i = 1; i <= totalPages; i++) {
         pageNumbers.push(i);
       }
     } else {
-      // Always show first page
       pageNumbers.push(1);
-
-      // Show dots if current page is more than 2
-      if (currentPage > 2) {
-        pageNumbers.push("...");
-      }
-
-      // Show current page if not first or last
-      if (currentPage !== 1 && currentPage !== totalPages) {
+      if (currentPage > 2) pageNumbers.push("...");
+      if (currentPage !== 1 && currentPage !== totalPages)
         pageNumbers.push(currentPage);
-      }
-
-      // Show dots if current page is less than totalPages - 1
-      if (currentPage < totalPages - 1) {
-        pageNumbers.push("...");
-      }
-
-      // Always show last page
+      if (currentPage < totalPages - 1) pageNumbers.push("...");
       pageNumbers.push(totalPages);
     }
 
@@ -325,10 +323,8 @@ const SalesDashboard = () => {
 
   return (
     <div className="bg-gray-100 min-h-screen">
-      {/* Main Content */}
       <div className="p-6">
         <div className="max-w-full mx-auto">
-          {/* Page Header */}
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6">
             <div>
               <h1 className="text-2xl font-semibold text-gray-800">Orders</h1>
@@ -346,7 +342,6 @@ const SalesDashboard = () => {
                 </ol>
               </nav>
             </div>
-
             <div className="flex mt-4 md:mt-0 space-x-3">
               <button className="px-4 py-2 bg-white border border-gray-300 rounded-md flex items-center text-gray-700 hover:bg-gray-50">
                 <Calendar size={18} className="mr-2" />
@@ -367,7 +362,6 @@ const SalesDashboard = () => {
             </div>
           </div>
 
-          {/* Statistics Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
             {statsCards.map((card) => (
               <div key={card.id} className="bg-white p-6 rounded-lg shadow-sm">
@@ -403,7 +397,6 @@ const SalesDashboard = () => {
             ))}
           </div>
 
-          {/* Orders List */}
           <div className="bg-white rounded-lg shadow-sm">
             <div className="p-6 border-b border-gray-200">
               <div className="flex flex-col md:flex-row justify-between">
@@ -426,7 +419,7 @@ const SalesDashboard = () => {
                   </div>
                   <button
                     className="px-3 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700"
-                    onClick={() => fetchOrders()}
+                    onClick={fetchOrders}
                   >
                     Search
                   </button>
@@ -434,7 +427,6 @@ const SalesDashboard = () => {
               </div>
             </div>
 
-            {/* Orders Table */}
             <div className="overflow-x-auto">
               {isLoading ? (
                 <div className="flex justify-center items-center p-8">
@@ -536,7 +528,6 @@ const SalesDashboard = () => {
               )}
             </div>
 
-            {/* Pagination */}
             {orders.length > 0 && (
               <div className="flex justify-between items-center p-6 border-t border-gray-200">
                 <div className="text-sm text-gray-500">
@@ -560,8 +551,6 @@ const SalesDashboard = () => {
                   >
                     <ChevronLeft size={16} />
                   </button>
-
-                  {/* Page numbers */}
                   {generatePageNumbers().map((page, index) => (
                     <button
                       key={index}
@@ -580,7 +569,6 @@ const SalesDashboard = () => {
                       {page}
                     </button>
                   ))}
-
                   <button
                     className="px-3 py-1 border border-gray-300 rounded text-gray-500 hover:bg-gray-50 disabled:opacity-50"
                     onClick={() =>
@@ -597,7 +585,6 @@ const SalesDashboard = () => {
         </div>
       </div>
 
-      {/* Add Order Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
@@ -612,7 +599,6 @@ const SalesDashboard = () => {
                 <X size={20} />
               </button>
             </div>
-
             <div className="mb-4">
               <label className="block text-gray-700 text-sm font-medium mb-2">
                 Customer Name*
@@ -620,14 +606,13 @@ const SalesDashboard = () => {
               <input
                 type="text"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                value={newOrder.customer}
+                value={newOrder.customer_name}
                 onChange={(e) =>
-                  setNewOrder({ ...newOrder, customer: e.target.value })
+                  setNewOrder({ ...newOrder, customer_name: e.target.value })
                 }
                 placeholder="Enter customer name"
               />
             </div>
-
             <div className="mb-4">
               <label className="block text-gray-700 text-sm font-medium mb-2">
                 Product*
@@ -642,22 +627,21 @@ const SalesDashboard = () => {
                 placeholder="Enter product name"
               />
             </div>
-
             <div className="mb-4">
               <label className="block text-gray-700 text-sm font-medium mb-2">
                 Amount*
               </label>
               <input
-                type="text"
+                type="number"
+                step="0.01"
                 className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                value={newOrder.amount}
+                value={newOrder.order_amount}
                 onChange={(e) =>
-                  setNewOrder({ ...newOrder, amount: e.target.value })
+                  setNewOrder({ ...newOrder, order_amount: e.target.value })
                 }
                 placeholder="Enter amount (e.g. 99.99)"
               />
             </div>
-
             <div className="mb-4">
               <label className="block text-gray-700 text-sm font-medium mb-2">
                 Status
@@ -675,7 +659,6 @@ const SalesDashboard = () => {
                 <option value="Cancelled">Cancelled</option>
               </select>
             </div>
-
             <div className="flex justify-end gap-3 mt-6">
               <button
                 className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
@@ -695,7 +678,6 @@ const SalesDashboard = () => {
         </div>
       )}
 
-      {/* Delete Confirmation Modal */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
@@ -713,12 +695,10 @@ const SalesDashboard = () => {
                 <X size={20} />
               </button>
             </div>
-
             <p className="text-gray-600 mb-6">
               Are you sure you want to delete this order? This action cannot be
               undone.
             </p>
-
             <div className="flex justify-end gap-3">
               <button
                 className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
