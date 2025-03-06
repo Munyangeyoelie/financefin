@@ -35,7 +35,7 @@ const Sidebar = () => {
   return (
     <aside className="w-64 bg-white shadow-md">
       <div className="p-4">
-        <h1 className="text-2xl font-bold text-blue-600">Gerad stock</h1>
+        <h1 className="text-2xl font-bold text-blue-600">Filbert stock</h1>
       </div>
       <nav className="mt-4">
         {menuItems.map((item) => (
