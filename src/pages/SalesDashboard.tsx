@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import {
   Search,
   Download,
@@ -42,7 +42,20 @@ const SalesDashboard = () => {
   });
 
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showPrintModal, setShowPrintModal] = useState(false);
+  const [currentOrder, setCurrentOrder] = useState(null);
+  const printRef = useRef(null);
+
   const [newOrder, setNewOrder] = useState({
+    customer_name: "",
+    product: "",
+    order_amount: "",
+    status: "Pending",
+  });
+
+  const [editOrder, setEditOrder] = useState({
+    id: null,
     customer_name: "",
     product: "",
     order_amount: "",
@@ -75,10 +88,7 @@ const SalesDashboard = () => {
         .order("created_at", { ascending: false })
         .range(from, to);
 
-      if (error) {
-        console.error("Supabase fetchOrders error:", error);
-        throw error;
-      }
+      if (error) throw error;
 
       const formattedOrders = ordersData.map((order) => ({
         ...order,
@@ -94,10 +104,9 @@ const SalesDashboard = () => {
       setOrders(formattedOrders);
       setTotalRecords(count || 0);
       setTotalPages(Math.ceil(count / recordsPerPage) || 1);
-
       await fetchStatistics();
     } catch (err) {
-      console.error("Full error in fetchOrders:", err.message, err.details);
+      console.error("Error fetching orders:", err.message);
     } finally {
       setIsLoading(false);
     }
@@ -108,12 +117,9 @@ const SalesDashboard = () => {
     try {
       const { data: salesData, error: salesError } = await supabase
         .from("orders")
-        .select("order_amount");
+        .select("order_amount, customer_name");
 
-      if (salesError) {
-        console.error("Supabase sales error:", salesError);
-        throw salesError;
-      }
+      if (salesError) throw salesError;
 
       if (!salesData || salesData.length === 0) {
         setStats({
@@ -129,37 +135,17 @@ const SalesDashboard = () => {
         return;
       }
 
-      // Fix for null order_amount values
       const totalSales = salesData.reduce((sum, order) => {
-        // Check if order_amount is null or undefined
-        if (!order.order_amount) return sum;
-
-        // Handle both string and number formats
-        let amount;
-        if (typeof order.order_amount === "string") {
-          // Extract numeric part from string format (e.g., "Frw 100.50")
-          const match = order.order_amount.match(/[\d.]+/);
-          amount = match ? parseFloat(match[0]) : 0;
-        } else {
-          amount = parseFloat(order.order_amount);
-        }
-
+        const amount =
+          typeof order.order_amount === "string"
+            ? parseFloat(order.order_amount.match(/[\d.]+/)?.[0] || 0)
+            : parseFloat(order.order_amount || 0);
         return sum + (isNaN(amount) ? 0 : amount);
       }, 0);
 
-      const { data: customersData, error: customersError } = await supabase
-        .from("orders")
-        .select("customer_name")
-        .order("customer_name");
-
-      if (customersError) {
-        console.error("Supabase customers error:", customersError);
-        throw customersError;
-      }
-
       const uniqueCustomers = new Set(
-        customersData
-          .filter((order) => order.customer_name) // Filter out null customer names
+        salesData
+          .filter((order) => order.customer_name)
           .map((order) => order.customer_name)
       ).size;
 
@@ -167,7 +153,7 @@ const SalesDashboard = () => {
         salesData.length > 0 ? totalSales / salesData.length : 0;
 
       setStats({
-        totalSales: ` ${totalSales.toFixed(2)}`,
+        totalSales: `Frw ${totalSales.toFixed(2)}`,
         totalOrders: salesData.length.toString(),
         totalCustomers: uniqueCustomers.toString(),
         averageSale: `Frw ${averageSale.toFixed(2)}`,
@@ -177,11 +163,11 @@ const SalesDashboard = () => {
         averageSaleGrowth: "-0.5%",
       });
     } catch (err) {
-      console.error("Full error in fetchStatistics:", err.message, err.details);
+      console.error("Error fetching statistics:", err.message);
     }
   };
 
-  // Add new order with improved error handling
+  // Add new order
   const addOrder = async () => {
     if (
       !newOrder.customer_name ||
@@ -194,34 +180,22 @@ const SalesDashboard = () => {
 
     try {
       const numericAmount = parseFloat(newOrder.order_amount);
-      if (isNaN(numericAmount)) {
+      if (isNaN(numericAmount))
         throw new Error("Amount must be a valid number");
-      }
-
-      const formattedAmount = ` ${numericAmount.toFixed(2)}`;
 
       const orderData = {
         customer_name: newOrder.customer_name.trim(),
         product: newOrder.product.trim(),
-        order_amount: formattedAmount,
-        total_amount: formattedAmount, // Added total_amount with the same value as order_amount
+        order_amount: numericAmount,
+        total_amount: numericAmount,
         status: newOrder.status,
         created_at: new Date().toISOString(),
       };
 
-      console.log("Inserting order:", orderData);
+      const { error } = await supabase.from("orders").insert([orderData]);
 
-      const { data, error } = await supabase
-        .from("orders")
-        .insert([orderData])
-        .select();
+      if (error) throw error;
 
-      if (error) {
-        console.error("Supabase addOrder error:", error);
-        throw error;
-      }
-
-      // Reset form and close modal
       setNewOrder({
         customer_name: "",
         product: "",
@@ -229,13 +203,137 @@ const SalesDashboard = () => {
         status: "Pending",
       });
       setShowAddModal(false);
-
-      // Fetch updated orders after successful insertion
       await fetchOrders();
     } catch (err) {
-      console.error("Full error in addOrder:", err.message, err.details);
+      console.error("Error adding order:", err.message);
       alert(`Failed to add order: ${err.message}`);
     }
+  };
+
+  // Edit order functionality
+  const openEditModal = (order) => {
+    const amount =
+      typeof order.amount === "string"
+        ? order.amount.match(/[\d.]+/)?.[0] || "0"
+        : order.amount.toString();
+
+    setEditOrder({
+      id: order.id,
+      customer_name: order.customer_name || "",
+      product: order.product || "",
+      order_amount: amount,
+      status: order.status || "Pending",
+    });
+    setShowEditModal(true);
+  };
+
+  const updateOrder = async () => {
+    if (
+      !editOrder.customer_name ||
+      !editOrder.product ||
+      !editOrder.order_amount
+    ) {
+      alert("Please fill all required fields");
+      return;
+    }
+
+    try {
+      const numericAmount = parseFloat(editOrder.order_amount);
+      if (isNaN(numericAmount))
+        throw new Error("Amount must be a valid number");
+
+      const orderData = {
+        customer_name: editOrder.customer_name.trim(),
+        product: editOrder.product.trim(),
+        order_amount: numericAmount,
+        total_amount: numericAmount,
+        status: editOrder.status,
+      };
+
+      const { error } = await supabase
+        .from("orders")
+        .update(orderData)
+        .eq("id", editOrder.id);
+
+      if (error) throw error;
+
+      setEditOrder({
+        id: null,
+        customer_name: "",
+        product: "",
+        order_amount: "",
+        status: "Pending",
+      });
+      setShowEditModal(false);
+      await fetchOrders();
+    } catch (err) {
+      console.error("Error updating order:", err.message);
+      alert(`Failed to update order: ${err.message}`);
+    }
+  };
+
+  // Print functionality
+  const openPrintModal = (order) => {
+    setCurrentOrder(order);
+    setShowPrintModal(true);
+  };
+
+  const handlePrint = () => {
+    const printWindow = window.open("", "_blank");
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>Order Invoice #${currentOrder.id
+            .toString()
+            .padStart(4, "0")}</title>
+          <style>
+            body { font-family: Arial, sans-serif; }
+            .invoice { max-width: 800px; margin: 20px auto; padding: 20px; }
+            .header { text-align: center; margin-bottom: 30px; }
+            .details div { margin-bottom: 5px; }
+            table { width: 100%; border-collapse: collapse; margin: 20px 0; }
+            th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+            th { background-color: #f2f2f2; }
+            .total { text-align: right; font-weight: bold; }
+          </style>
+        </head>
+        <body>
+          <div class="invoice">
+            <div class="header">
+              <h1>Order Invoice</h1>
+              <p>Order #${currentOrder.id.toString().padStart(4, "0")}</p>
+              <p>Date: ${currentOrder.date}</p>
+            </div>
+            <div class="details">
+              <div><strong>Customer:</strong> ${
+                currentOrder.customer_name || currentOrder.customer
+              }</div>
+              <div><strong>Status:</strong> ${currentOrder.status}</div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>${currentOrder.product}</td>
+                  <td>${currentOrder.amount}</td>
+                </tr>
+              </tbody>
+            </table>
+            <div class="total">Total: ${currentOrder.amount}</div>
+          </div>
+        </body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.focus();
+    printWindow.print();
+    printWindow.close();
+    setShowPrintModal(false);
   };
 
   // Delete order
@@ -248,16 +346,13 @@ const SalesDashboard = () => {
         .delete()
         .eq("id", orderToDelete);
 
-      if (error) {
-        console.error("Supabase deleteOrder error:", error);
-        throw error;
-      }
+      if (error) throw error;
 
       setShowDeleteModal(false);
       setOrderToDelete(null);
-      fetchOrders();
+      await fetchOrders();
     } catch (err) {
-      console.error("Full error in deleteOrder:", err.message, err.details);
+      console.error("Error deleting order:", err.message);
       alert(`Failed to delete order: ${err.message}`);
     }
   };
@@ -325,9 +420,7 @@ const SalesDashboard = () => {
     const maxVisiblePages = 3;
 
     if (totalPages <= maxVisiblePages) {
-      for (let i = 1; i <= totalPages; i++) {
-        pageNumbers.push(i);
-      }
+      for (let i = 1; i <= totalPages; i++) pageNumbers.push(i);
     } else {
       pageNumbers.push(1);
       if (currentPage > 2) pageNumbers.push("...");
@@ -336,7 +429,6 @@ const SalesDashboard = () => {
       if (currentPage < totalPages - 1) pageNumbers.push("...");
       pageNumbers.push(totalPages);
     }
-
     return pageNumbers;
   };
 
@@ -355,9 +447,7 @@ const SalesDashboard = () => {
                     </a>
                     <span className="mx-2">/</span>
                   </li>
-                  <li className="flex items-center text-gray-500">
-                    <span>Orders</span>
-                  </li>
+                  <li className="flex items-center text-gray-500">Orders</li>
                 </ol>
               </nav>
             </div>
@@ -483,15 +573,12 @@ const SalesDashboard = () => {
                       orders.map((order) => (
                         <tr key={order.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-purple-600">
-                            #
-                            {order.id
-                              ? order.id.toString().padStart(4, "0")
-                              : "0000"}
+                            #{order.id?.toString().padStart(4, "0") || "0000"}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
                             <div className="flex items-center">
                               <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-700 font-medium mr-3">
-                                {order.customer && order.customer.charAt(0)}
+                                {order.customer?.charAt(0) || "?"}
                               </div>
                               {order.customer || "Unknown"}
                             </div>
@@ -516,10 +603,18 @@ const SalesDashboard = () => {
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
                             <div className="flex space-x-3">
-                              <button className="text-gray-500 hover:text-blue-600">
+                              <button
+                                className="text-gray-500 hover:text-blue-600"
+                                onClick={() => openPrintModal(order)}
+                                title="Print Order"
+                              >
                                 <FileText size={18} />
                               </button>
-                              <button className="text-gray-500 hover:text-green-600">
+                              <button
+                                className="text-gray-500 hover:text-green-600"
+                                onClick={() => openEditModal(order)}
+                                title="Edit Order"
+                              >
                                 <Edit size={18} />
                               </button>
                               <button
@@ -553,15 +648,9 @@ const SalesDashboard = () => {
             {orders.length > 0 && (
               <div className="flex justify-between items-center p-6 border-t border-gray-200">
                 <div className="text-sm text-gray-500">
-                  Showing{" "}
-                  <span className="font-medium">
-                    {(currentPage - 1) * recordsPerPage + 1}
-                  </span>{" "}
-                  to{" "}
-                  <span className="font-medium">
-                    {Math.min(currentPage * recordsPerPage, totalRecords)}
-                  </span>{" "}
-                  of <span className="font-medium">{totalRecords}</span> entries
+                  Showing {(currentPage - 1) * recordsPerPage + 1} to{" "}
+                  {Math.min(currentPage * recordsPerPage, totalRecords)} of{" "}
+                  {totalRecords} entries
                 </div>
                 <div className="flex space-x-1">
                   <button
@@ -607,6 +696,7 @@ const SalesDashboard = () => {
         </div>
       </div>
 
+      {/* Add Order Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
@@ -621,65 +711,67 @@ const SalesDashboard = () => {
                 <X size={20} />
               </button>
             </div>
-            <div className="mb-4">
-              <label className="block text-gray-700 text-sm font-medium mb-2">
-                Customer Name*
-              </label>
-              <input
-                type="text"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                value={newOrder.customer_name}
-                onChange={(e) =>
-                  setNewOrder({ ...newOrder, customer_name: e.target.value })
-                }
-                placeholder="Enter customer name"
-              />
-            </div>
-            <div className="mb-4">
-              <label className="block text-gray-700 text-sm font-medium mb-2">
-                Product*
-              </label>
-              <input
-                type="text"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                value={newOrder.product}
-                onChange={(e) =>
-                  setNewOrder({ ...newOrder, product: e.target.value })
-                }
-                placeholder="Enter product name"
-              />
-            </div>
-            <div className="mb-4">
-              <label className="block text-gray-700 text-sm font-medium mb-2">
-                Amount*
-              </label>
-              <input
-                type="number"
-                step="0.01"
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                value={newOrder.order_amount}
-                onChange={(e) =>
-                  setNewOrder({ ...newOrder, order_amount: e.target.value })
-                }
-                placeholder="Enter amount (e.g. 99.99)"
-              />
-            </div>
-            <div className="mb-4">
-              <label className="block text-gray-700 text-sm font-medium mb-2">
-                Status
-              </label>
-              <select
-                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
-                value={newOrder.status}
-                onChange={(e) =>
-                  setNewOrder({ ...newOrder, status: e.target.value })
-                }
-              >
-                <option value="Pending">Pending</option>
-                <option value="Paid">Paid</option>
-                <option value="Delivered">Delivered</option>
-                <option value="Cancelled">Cancelled</option>
-              </select>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-gray-700 text-sm font-medium mb-2">
+                  Customer Name*
+                </label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  value={newOrder.customer_name}
+                  onChange={(e) =>
+                    setNewOrder({ ...newOrder, customer_name: e.target.value })
+                  }
+                  placeholder="Enter customer name"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 text-sm font-medium mb-2">
+                  Product*
+                </label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  value={newOrder.product}
+                  onChange={(e) =>
+                    setNewOrder({ ...newOrder, product: e.target.value })
+                  }
+                  placeholder="Enter product name"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 text-sm font-medium mb-2">
+                  Amount*
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  value={newOrder.order_amount}
+                  onChange={(e) =>
+                    setNewOrder({ ...newOrder, order_amount: e.target.value })
+                  }
+                  placeholder="Enter amount (e.g. 99.99)"
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 text-sm font-medium mb-2">
+                  Status
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  value={newOrder.status}
+                  onChange={(e) =>
+                    setNewOrder({ ...newOrder, status: e.target.value })
+                  }
+                >
+                  <option value="Pending">Pending</option>
+                  <option value="Paid">Paid</option>
+                  <option value="Delivered">Delivered</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button
@@ -700,6 +792,141 @@ const SalesDashboard = () => {
         </div>
       )}
 
+      {/* Edit Order Modal */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-semibold text-gray-800">
+                Edit Order
+              </h3>
+              <button
+                className="text-gray-400 hover:text-gray-600"
+                onClick={() => setShowEditModal(false)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-gray-700 text-sm font-medium mb-2">
+                  Customer Name*
+                </label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  value={editOrder.customer_name}
+                  onChange={(e) =>
+                    setEditOrder({
+                      ...editOrder,
+                      customer_name: e.target.value,
+                    })
+                  }
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 text-sm font-medium mb-2">
+                  Product*
+                </label>
+                <input
+                  type="text"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  value={editOrder.product}
+                  onChange={(e) =>
+                    setEditOrder({ ...editOrder, product: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 text-sm font-medium mb-2">
+                  Amount*
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  value={editOrder.order_amount}
+                  onChange={(e) =>
+                    setEditOrder({ ...editOrder, order_amount: e.target.value })
+                  }
+                />
+              </div>
+              <div>
+                <label className="block text-gray-700 text-sm font-medium mb-2">
+                  Status
+                </label>
+                <select
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  value={editOrder.status}
+                  onChange={(e) =>
+                    setEditOrder({ ...editOrder, status: e.target.value })
+                  }
+                >
+                  <option value="Pending">Pending</option>
+                  <option value="Paid">Paid</option>
+                  <option value="Delivered">Delivered</option>
+                  <option value="Cancelled">Cancelled</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+                onClick={() => setShowEditModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-purple-600 text-white rounded-md hover:bg-purple-700 flex items-center"
+                onClick={updateOrder}
+              >
+                <Check size={18} className="mr-2" />
+                Update Order
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Print Confirmation Modal */}
+      {showPrintModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-xl font-semibold text-gray-800">
+                Print Order
+              </h3>
+              <button
+                className="text-gray-400 hover:text-gray-600"
+                onClick={() => setShowPrintModal(false)}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-gray-600 mb-6">
+              Are you sure you want to print Order #
+              {currentOrder?.id.toString().padStart(4, "0")}?
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                className="px-4 py-2 bg-gray-200 text-gray-800 rounded-md hover:bg-gray-300"
+                onClick={() => setShowPrintModal(false)}
+              >
+                Cancel
+              </button>
+              <button
+                className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center"
+                onClick={handlePrint}
+              >
+                <FileText size={18} className="mr-2" />
+                Print
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6">
