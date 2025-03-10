@@ -11,6 +11,7 @@ import {
 } from "recharts";
 import { DollarSign, ShoppingBag, Users, TrendingUp } from "lucide-react";
 import { supabase } from "../lib/supabase";
+import { saveAs } from "file-saver"; // Import file-saver for downloading
 import type { Order, Product } from "../types/database";
 
 const StatCard = ({
@@ -48,15 +49,16 @@ const AdminDashboard = () => {
   const [totalOrders, setTotalOrders] = useState(0);
   const [totalCustomers, setTotalCustomers] = useState(0);
   const [salesData, setSalesData] = useState([]);
+  const [ordersData, setOrdersData] = useState<Order[]>([]); // Store raw orders data
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
-        // Fetch orders for revenue calculation
+        // Fetch orders for revenue calculation and raw data
         const { data: orders } = await supabase
           .from("orders")
-          .select("total_amount, created_at")
+          .select("total_amount, created_at, customer_email")
           .order("created_at", { ascending: false });
 
         if (orders) {
@@ -66,6 +68,7 @@ const AdminDashboard = () => {
           );
           setTotalRevenue(revenue);
           setTotalOrders(orders.length);
+          setOrdersData(orders); // Store raw orders data
 
           // Process sales data for chart
           const monthlySales = orders.reduce((acc, order) => {
@@ -136,6 +139,32 @@ const AdminDashboard = () => {
     },
   ];
 
+  // Function to download report as CSV
+  const downloadReport = () => {
+    const csvHeaders = [
+      "Metric",
+      "Value",
+      "Trend vs Last Month",
+      "Details",
+    ].join(",");
+    const csvRows = [
+      `Total Revenue,Frw ${totalRevenue.toLocaleString()},${stats[0].trend}%,`,
+      `Total Customers,${totalCustomers.toLocaleString()},${stats[1].trend}%,`,
+      `Total Orders,${totalOrders.toLocaleString()},${stats[2].trend}%,`,
+      `Growth Rate,${stats[3].value},${stats[3].trend}%,`,
+      ...ordersData.map(
+        (order) =>
+          `Order,Frw ${order.total_amount.toLocaleString()},,Created At: ${new Date(
+            order.created_at
+          ).toLocaleString()}, Customer: ${order.customer_email || "N/A"}`
+      ),
+    ].join("\n");
+
+    const csvContent = `${csvHeaders}\n${csvRows}`;
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    saveAs(blob, `admin_report_${new Date().toISOString().split("T")[0]}.csv`);
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center h-full">Loading...</div>
@@ -148,7 +177,10 @@ const AdminDashboard = () => {
         <h1 className="text-2xl font-semibold text-gray-800">
           Admin Dashboard
         </h1>
-        <button className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">
+        <button
+          onClick={downloadReport}
+          className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
+        >
           Download Report
         </button>
       </div>

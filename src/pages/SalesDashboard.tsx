@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import {
   Search,
   Download,
@@ -43,9 +43,9 @@ const SalesDashboard = () => {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [newOrder, setNewOrder] = useState({
-    customer_name: "", // Adjusted to match hypothetical column name
+    customer_name: "",
     product: "",
-    order_amount: "", // Adjusted to match hypothetical column name
+    order_amount: "",
     status: "Pending",
   });
 
@@ -71,7 +71,7 @@ const SalesDashboard = () => {
       } = await supabase
         .from("orders")
         .select("*", { count: "exact" })
-        .ilike("customer_name", `%${searchQuery}%`) // Adjusted column name
+        .ilike("customer_name", `%${searchQuery}%`)
         .order("created_at", { ascending: false })
         .range(from, to);
 
@@ -87,8 +87,8 @@ const SalesDashboard = () => {
           month: "short",
           year: "numeric",
         }),
-        customer: order.customer_name, // Map to expected key
-        amount: order.order_amount, // Map to expected key
+        customer: order.customer_name,
+        amount: order.order_amount,
       }));
 
       setOrders(formattedOrders);
@@ -108,7 +108,7 @@ const SalesDashboard = () => {
     try {
       const { data: salesData, error: salesError } = await supabase
         .from("orders")
-        .select("order_amount"); // Adjusted column name
+        .select("order_amount");
 
       if (salesError) {
         console.error("Supabase sales error:", salesError);
@@ -129,14 +129,27 @@ const SalesDashboard = () => {
         return;
       }
 
+      // Fix for null order_amount values
       const totalSales = salesData.reduce((sum, order) => {
-        const amount = parseFloat(order.order_amount.replace("Frw ", ""));
+        // Check if order_amount is null or undefined
+        if (!order.order_amount) return sum;
+
+        // Handle both string and number formats
+        let amount;
+        if (typeof order.order_amount === "string") {
+          // Extract numeric part from string format (e.g., "Frw 100.50")
+          const match = order.order_amount.match(/[\d.]+/);
+          amount = match ? parseFloat(match[0]) : 0;
+        } else {
+          amount = parseFloat(order.order_amount);
+        }
+
         return sum + (isNaN(amount) ? 0 : amount);
       }, 0);
 
       const { data: customersData, error: customersError } = await supabase
         .from("orders")
-        .select("customer_name") // Adjusted column name
+        .select("customer_name")
         .order("customer_name");
 
       if (customersError) {
@@ -145,14 +158,16 @@ const SalesDashboard = () => {
       }
 
       const uniqueCustomers = new Set(
-        customersData.map((order) => order.customer_name)
+        customersData
+          .filter((order) => order.customer_name) // Filter out null customer names
+          .map((order) => order.customer_name)
       ).size;
 
       const averageSale =
         salesData.length > 0 ? totalSales / salesData.length : 0;
 
       setStats({
-        totalSales: `Frw ${totalSales.toFixed(2)}`,
+        totalSales: ` ${totalSales.toFixed(2)}`,
         totalOrders: salesData.length.toString(),
         totalCustomers: uniqueCustomers.toString(),
         averageSale: `Frw ${averageSale.toFixed(2)}`,
@@ -166,7 +181,7 @@ const SalesDashboard = () => {
     }
   };
 
-  // Add new order
+  // Add new order with improved error handling
   const addOrder = async () => {
     if (
       !newOrder.customer_name ||
@@ -183,12 +198,12 @@ const SalesDashboard = () => {
         throw new Error("Amount must be a valid number");
       }
 
-      const formattedAmount = `Frw ${numericAmount.toFixed(2)}`;
+      const formattedAmount = ` ${numericAmount.toFixed(2)}`;
 
       const orderData = {
-        customer_name: newOrder.customer_name.trim(), // Adjusted column name
+        customer_name: newOrder.customer_name.trim(),
         product: newOrder.product.trim(),
-        order_amount: formattedAmount, // Adjusted column name
+        order_amount: formattedAmount,
         status: newOrder.status,
         created_at: new Date().toISOString(),
       };
@@ -205,14 +220,17 @@ const SalesDashboard = () => {
         throw error;
       }
 
+      // Reset form and close modal
       setNewOrder({
-        customer_name: "", // Adjusted key
+        customer_name: "",
         product: "",
-        order_amount: "", // Adjusted key
+        order_amount: "",
         status: "Pending",
       });
       setShowAddModal(false);
-      fetchOrders();
+
+      // Fetch updated orders after successful insertion
+      await fetchOrders();
     } catch (err) {
       console.error("Full error in addOrder:", err.message, err.details);
       alert(`Failed to add order: ${err.message}`);
@@ -464,21 +482,24 @@ const SalesDashboard = () => {
                       orders.map((order) => (
                         <tr key={order.id} className="hover:bg-gray-50">
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-purple-600">
-                            #{order.id.toString().padStart(4, "0")}
+                            #
+                            {order.id
+                              ? order.id.toString().padStart(4, "0")
+                              : "0000"}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
                             <div className="flex items-center">
                               <div className="h-8 w-8 rounded-full bg-gray-200 flex items-center justify-center text-gray-700 font-medium mr-3">
-                                {order.customer.charAt(0)}
+                                {order.customer && order.customer.charAt(0)}
                               </div>
-                              {order.customer}
+                              {order.customer || "Unknown"}
                             </div>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-800">
-                            {order.product}
+                            {order.product || "No product"}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-800">
-                            {order.amount}
+                            {order.amount || "Frw 0.00"}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap">
                             <span
@@ -486,11 +507,11 @@ const SalesDashboard = () => {
                                 order.status
                               )}`}
                             >
-                              {order.status}
+                              {order.status || "Unknown"}
                             </span>
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {order.date}
+                            {order.date || "No date"}
                           </td>
                           <td className="px-6 py-4 whitespace-nowrap text-sm">
                             <div className="flex space-x-3">

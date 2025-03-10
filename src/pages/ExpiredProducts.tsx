@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { supabase } from "../lib/supabase"; // Adjust path as needed
+import { supabase } from "../lib/supabase";
 
 interface Product {
   id: string;
@@ -35,7 +35,8 @@ const ExpiredProducts = () => {
   const fetchExpiredProducts = async () => {
     try {
       setLoading(true);
-      const today = new Date().toISOString().split("T")[0]; // Get today's date in YYYY-MM-DD format
+      const oneWeekFromNow = new Date();
+      oneWeekFromNow.setDate(oneWeekFromNow.getDate() + 7);
 
       const { data, error } = await supabase
         .from("products")
@@ -46,14 +47,14 @@ const ExpiredProducts = () => {
           company:company_id(name)
         `
         )
-        .lte("expiry_date", today) // Less than or equal to today's date
-        .order("expiry_date", { ascending: false });
+        .lte("expiry_date", oneWeekFromNow.toISOString().split("T")[0]) // Up to one week from now
+        .order("expiry_date", { ascending: true });
 
       if (error) throw error;
       setProducts(data || []);
     } catch (err) {
-      console.error("Error fetching expired products:", err);
-      setError("Failed to load expired products");
+      console.error("Error fetching products:", err);
+      setError("Failed to load products");
     } finally {
       setLoading(false);
     }
@@ -64,9 +65,7 @@ const ExpiredProducts = () => {
 
     try {
       const { error } = await supabase.from("products").delete().eq("id", id);
-
       if (error) throw error;
-
       setProducts(products.filter((product) => product.id !== id));
     } catch (err) {
       console.error("Error deleting product:", err);
@@ -82,12 +81,30 @@ const ExpiredProducts = () => {
       product.company?.name.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const getDaysExpired = (expiryDate: string) => {
+  const getExpiryStatus = (expiryDate: string) => {
     const today = new Date();
     const expiry = new Date(expiryDate);
-    const diffTime = Math.abs(today.getTime() - expiry.getTime());
+    const diffTime = expiry.getTime() - today.getTime();
     const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    return diffDays;
+
+    if (diffDays < 0) {
+      return {
+        status: "expired",
+        days: Math.abs(diffDays),
+        color: "bg-red-100 text-red-800",
+      };
+    } else if (diffDays <= 7) {
+      return {
+        status: "warning",
+        days: diffDays,
+        color: "bg-yellow-100 text-yellow-800",
+      };
+    }
+    return {
+      status: "normal",
+      days: diffDays,
+      color: "bg-gray-100 text-gray-800",
+    };
   };
 
   return (
@@ -141,7 +158,7 @@ const ExpiredProducts = () => {
           <div className="p-6 text-center text-gray-500">
             {searchTerm
               ? "No products found matching your search."
-              : "No expired products found."}
+              : "No expiring products found."}
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -170,7 +187,7 @@ const ExpiredProducts = () => {
                     Expiry Date
                   </th>
                   <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Days Expired
+                    Status
                   </th>
                   <th className="px-6 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Actions
@@ -178,13 +195,75 @@ const ExpiredProducts = () => {
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {filteredProducts.map((product) => (
-                  <tr key={product.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10 bg-gray-200 rounded-md flex items-center justify-center text-gray-500">
+                {filteredProducts.map((product) => {
+                  const { status, days, color } = getExpiryStatus(
+                    product.expiry_date
+                  );
+                  return (
+                    <tr key={product.id} className="hover:bg-gray-50">
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <div className="flex items-center">
+                          <div className="flex-shrink-0 h-10 w-10 bg-gray-200 rounded-md flex items-center justify-center text-gray-500">
+                            <svg
+                              className="h-6 w-6"
+                              fill="none"
+                              viewBox="0 0 24 24"
+                              stroke="currentColor"
+                            >
+                              <path
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                strokeWidth={2}
+                                d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                              />
+                            </svg>
+                          </div>
+                          <div className="ml-4">
+                            <div className="text-sm font-medium text-gray-900">
+                              {product.name}
+                            </div>
+                            <div className="text-sm text-gray-500">
+                              {product.description?.substring(0, 50) || ""}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {product.sku || "-"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {product.category?.name || "-"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {product.company?.name || "-"}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                        ${product.price.toFixed(2)}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                        {product.quantity}
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap">
+                        <span
+                          className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${color}`}
+                        >
+                          {new Date(product.expiry_date).toLocaleDateString()}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+                        <span className={color}>
+                          {status === "expired"
+                            ? `${days} days expired`
+                            : `${days} days remaining`}
+                        </span>
+                      </td>
+                      <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
+                        <button
+                          onClick={() => handleDeleteProduct(product.id)}
+                          className="text-red-600 hover:text-red-800"
+                        >
                           <svg
-                            className="h-6 w-6"
+                            className="h-5 w-5"
                             fill="none"
                             viewBox="0 0 24 24"
                             stroke="currentColor"
@@ -193,65 +272,14 @@ const ExpiredProducts = () => {
                               strokeLinecap="round"
                               strokeLinejoin="round"
                               strokeWidth={2}
-                              d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"
+                              d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
                             />
                           </svg>
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">
-                            {product.name}
-                          </div>
-                          <div className="text-sm text-gray-500">
-                            {product.description?.substring(0, 50) || ""}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {product.sku || "-"}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {product.category?.name || "-"}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {product.company?.name || "-"}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                      ${product.price.toFixed(2)}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {product.quantity}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className="px-2 inline-flex text-xs leading-5 font-semibold rounded-full bg-red-100 text-red-800">
-                        {new Date(product.expiry_date).toLocaleDateString()}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-red-600 font-medium">
-                      {getDaysExpired(product.expiry_date)} days
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-center text-sm">
-                      <button
-                        onClick={() => handleDeleteProduct(product.id)}
-                        className="text-red-600 hover:text-red-800"
-                      >
-                        <svg
-                          className="h-5 w-5"
-                          fill="none"
-                          viewBox="0 0 24 24"
-                          stroke="currentColor"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                          />
-                        </svg>
-                      </button>
-                    </td>
-                  </tr>
-                ))}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
