@@ -15,7 +15,7 @@ import {
 
 const Sidebar = () => {
   const menuItems = [
-    { path: "/", icon: LayoutDashboard, label: "Dashboard" },
+    // { path: "/", icon: LayoutDashboard, label: "Dashboard" },
     {
       path: "/admin-dashboard",
       icon: LayoutDashboard,
@@ -27,8 +27,8 @@ const Sidebar = () => {
     { path: "/expired-products", icon: AlertCircle, label: "Expired Products" },
     { path: "/low-stocks", icon: Boxes, label: "Low Stocks" },
     { path: "/category-list", icon: List, label: "Categories" },
-    { path: "/online-orders", icon: ShoppingCart, label: "Online Orders" },
-    { path: "/sales-returns", icon: RotateCcw, label: "Sales Returns" },
+    // { path: "/online-orders", icon: ShoppingCart, label: "Online Orders" },
+    // { path: "/sales-returns", icon: RotateCcw, label: "Sales Returns" },
     { path: "/expense-list", icon: Receipt, label: "Expenses" },
   ];
 

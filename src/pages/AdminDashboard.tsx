@@ -11,8 +11,8 @@ import {
 } from "recharts";
 import { DollarSign, ShoppingBag, Users, TrendingUp } from "lucide-react";
 import { supabase } from "../lib/supabase";
-import { saveAs } from "file-saver"; // Import file-saver for downloading
-import type { Order, Product } from "../types/database";
+import { saveAs } from "file-saver";
+import type { Order, Expense } from "../types/database";
 
 const StatCard = ({
   icon: Icon,
@@ -49,51 +49,77 @@ const AdminDashboard = () => {
   const [totalOrders, setTotalOrders] = useState(0);
   const [totalCustomers, setTotalCustomers] = useState(0);
   const [salesData, setSalesData] = useState([]);
-  const [ordersData, setOrdersData] = useState<Order[]>([]); // Store raw orders data
+  const [ordersData, setOrdersData] = useState<Order[]>([]);
+  const [expensesData, setExpensesData] = useState<Expense[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const fetchDashboardData = async () => {
       try {
         // Fetch orders for revenue calculation and raw data
-        const { data: orders } = await supabase
+        const { data: orders, error: ordersError } = await supabase
           .from("orders")
-          .select("total_amount, created_at, customer_email")
+          .select("*")
           .order("created_at", { ascending: false });
+
+        if (ordersError) throw ordersError;
+
+        // Fetch expenses data
+        const { data: expenses, error: expensesError } = await supabase
+          .from("expenses")
+          .select("*")
+          .order("created_at", { ascending: false });
+
+        if (expensesError) throw expensesError;
 
         if (orders) {
           const revenue = orders.reduce(
-            (sum, order) => sum + order.total_amount,
+            (sum, order) => sum + (order.total_amount || 0),
             0
           );
           setTotalRevenue(revenue);
           setTotalOrders(orders.length);
-          setOrdersData(orders); // Store raw orders data
+          setOrdersData(orders);
 
-          // Process sales data for chart
-          const monthlySales = orders.reduce((acc, order) => {
-            const month = new Date(order.created_at).toLocaleString("default", {
-              month: "short",
-            });
-            acc[month] = (acc[month] || 0) + order.total_amount;
+          // Process sales data for chart - grouped by day
+          const dailySales = orders.reduce((acc, order) => {
+            if (!order.created_at) return acc;
+            const date = new Date(order.created_at).toISOString().split("T")[0];
+            acc[date] = (acc[date] || 0) + (order.total_amount || 0);
             return acc;
           }, {});
 
-          setSalesData(
-            Object.entries(monthlySales).map(([month, amount]) => ({
-              month,
+          // Convert to array and sort by date
+          const sortedDailySales = Object.entries(dailySales)
+            .map(([date, amount]) => ({
+              date,
               amount,
+              // Format date for display
+              displayDate: new Date(date).toLocaleDateString("en-US", {
+                month: "short",
+                day: "numeric",
+              }),
             }))
-          );
+            .sort(
+              (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+            );
+
+          setSalesData(sortedDailySales);
         }
 
-        // Fetch unique customers count
-        const { count } = await supabase
-          .from("orders")
-          .select("customer_email", { count: "exact", head: true })
-          .not("customer_email", "is", null);
+        if (expenses) {
+          setExpensesData(expenses);
+        }
 
-        setTotalCustomers(count || 0);
+        // Fetch unique customers count based on customer_name
+        const uniqueCustomers = new Set();
+        orders?.forEach((order) => {
+          if (order.customer_name) {
+            uniqueCustomers.add(order.customer_name);
+          }
+        });
+
+        setTotalCustomers(uniqueCustomers.size);
         setLoading(false);
       } catch (error) {
         console.error("Error fetching dashboard data:", error);
@@ -139,30 +165,118 @@ const AdminDashboard = () => {
     },
   ];
 
-  // Function to download report as CSV
+  // Function to download comprehensive report as CSV
   const downloadReport = () => {
-    const csvHeaders = [
-      "Metric",
-      "Value",
-      "Trend vs Last Month",
-      "Details",
-    ].join(",");
-    const csvRows = [
-      `Total Revenue,Frw ${totalRevenue.toLocaleString()},${stats[0].trend}%,`,
-      `Total Customers,${totalCustomers.toLocaleString()},${stats[1].trend}%,`,
-      `Total Orders,${totalOrders.toLocaleString()},${stats[2].trend}%,`,
-      `Growth Rate,${stats[3].value},${stats[3].trend}%,`,
-      ...ordersData.map(
-        (order) =>
-          `Order,Frw ${order.total_amount.toLocaleString()},,Created At: ${new Date(
-            order.created_at
-          ).toLocaleString()}, Customer: ${order.customer_email || "N/A"}`
-      ),
-    ].join("\n");
+    try {
+      // Create CSV string builder with proper encoding for Excel compatibility
+      let csvContent = "\uFEFF"; // BOM for Excel to recognize UTF-8
 
-    const csvContent = `${csvHeaders}\n${csvRows}`;
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    saveAs(blob, `admin_report_${new Date().toISOString().split("T")[0]}.csv`);
+      // 1. SUMMARY SECTION
+      csvContent += "SUMMARY DATA\r\n";
+      csvContent += "Metric,Value,Trend vs Last Month,Details\r\n";
+      csvContent += `Total Revenue,Frw ${totalRevenue.toLocaleString()},${
+        stats[0].trend
+      }%,\r\n`;
+      csvContent += `Total Customers,${totalCustomers.toLocaleString()},${
+        stats[1].trend
+      }%,\r\n`;
+      csvContent += `Total Orders,${totalOrders.toLocaleString()},${
+        stats[2].trend
+      }%,\r\n`;
+      csvContent += `Growth Rate,${stats[3].value},${stats[3].trend}%,\r\n`;
+      csvContent += "\r\n"; // Empty row as separator
+
+      // 2. ORDERS SECTION
+      csvContent += "ORDERS DATA\r\n";
+      csvContent +=
+        "Order ID,Date,Customer,Total Amount,Status,Payment Method,Additional Info\r\n";
+
+      if (ordersData && ordersData.length > 0) {
+        ordersData.forEach((order) => {
+          // Escape any commas in text fields
+          const customerName = order.customer_name
+            ? `"${order.customer_name.replace(/"/g, '""')}"`
+            : "N/A";
+          const notes = order.notes
+            ? `"${order.notes.replace(/"/g, '""')}"`
+            : "";
+          const status = order.status ? `"${order.status}"` : "N/A";
+          const paymentMethod = order.payment_method
+            ? `"${order.payment_method}"`
+            : "N/A";
+
+          csvContent +=
+            [
+              order.id || "N/A",
+              new Date(order.created_at).toLocaleString(),
+              customerName,
+              `Frw ${order.total_amount.toLocaleString()}`,
+              status,
+              paymentMethod,
+              notes,
+            ].join(",") + "\r\n";
+        });
+      } else {
+        csvContent += "No order data available\r\n";
+      }
+
+      csvContent += "\r\n"; // Empty row as separator
+
+      // 3. EXPENSES SECTION
+      csvContent += "EXPENSES DATA\r\n";
+      csvContent += "Expense ID,Date,Category,Amount,Vendor,Description\r\n";
+
+      if (expensesData && expensesData.length > 0) {
+        expensesData.forEach((expense) => {
+          // Escape any commas in text fields
+          const category = expense.category
+            ? `"${expense.category.replace(/"/g, '""')}"`
+            : "N/A";
+          const description = expense.description
+            ? `"${expense.description.replace(/"/g, '""')}"`
+            : "";
+          const vendor = expense.vendor
+            ? `"${expense.vendor.replace(/"/g, '""')}"`
+            : "N/A";
+
+          csvContent +=
+            [
+              expense.id || "N/A",
+              new Date(expense.created_at).toLocaleString(),
+              category,
+              `Frw ${expense.amount.toLocaleString()}`,
+              vendor,
+              description,
+            ].join(",") + "\r\n";
+        });
+      } else {
+        csvContent += "No expense data available\r\n";
+      }
+
+      // 4. DAILY SALES BREAKDOWN
+      csvContent += "\r\n";
+      csvContent += "DAILY SALES BREAKDOWN\r\n";
+      csvContent += "Date,Total Sales\r\n";
+
+      if (salesData && salesData.length > 0) {
+        salesData.forEach((day) => {
+          csvContent +=
+            [day.date, `Frw ${day.amount.toLocaleString()}`].join(",") + "\r\n";
+        });
+      } else {
+        csvContent += "No daily sales data available\r\n";
+      }
+
+      // Create and download the file
+      const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+      saveAs(
+        blob,
+        `admin_report_${new Date().toISOString().split("T")[0]}.csv`
+      );
+    } catch (error) {
+      console.error("Error generating report:", error);
+      alert("There was an error generating the report. Please try again.");
+    }
   };
 
   if (loading) {
@@ -192,14 +306,20 @@ const AdminDashboard = () => {
       </div>
 
       <div className="bg-white p-6 rounded-lg shadow-sm">
-        <h2 className="text-lg font-semibold mb-4">Sales Overview</h2>
+        <h2 className="text-lg font-semibold mb-4">Daily Sales Overview</h2>
         <div className="h-80">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={salesData}>
               <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="month" />
+              <XAxis dataKey="displayDate" />
               <YAxis />
-              <Tooltip />
+              <Tooltip
+                formatter={(value) => [
+                  `Frw ${value.toLocaleString()}`,
+                  "Sales",
+                ]}
+                labelFormatter={(label) => `Date: ${label}`}
+              />
               <Legend />
               <Bar dataKey="amount" name="Sales" fill="#4F46E5" />
             </BarChart>

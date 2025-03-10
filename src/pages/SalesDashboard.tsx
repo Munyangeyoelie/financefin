@@ -204,6 +204,7 @@ const SalesDashboard = () => {
         customer_name: newOrder.customer_name.trim(),
         product: newOrder.product.trim(),
         order_amount: formattedAmount,
+        total_amount: formattedAmount, // Added total_amount with the same value as order_amount
         status: newOrder.status,
         created_at: new Date().toISOString(),
       };

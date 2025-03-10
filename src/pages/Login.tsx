@@ -24,7 +24,7 @@ const Login = () => {
       if (isAdmin) {
         navigate("/admin-dashboard");
       } else {
-        navigate("/dashboard");
+        navigate("/sales-dashboard");
       }
     } catch (err: any) {
       setError(err.message || "Invalid email or password");
