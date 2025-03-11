@@ -23,7 +23,7 @@ const LowStocks: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
 
   // Define the threshold for low stock
-  const LOW_STOCK_THRESHOLD = 10;
+  const LOW_STOCK_THRESHOLD = 20;
 
   useEffect(() => {
     async function fetchLowStockItems() {
@@ -55,8 +55,8 @@ const LowStocks: React.FC = () => {
 
   // Function to get the status class based on quantity
   const getStatusClass = (quantity: number) => {
-    if (quantity <= 3) return "bg-red-100 text-red-600";
-    if (quantity <= 6) return "bg-orange-100 text-orange-600";
+    if (quantity <= 7) return "bg-red-100 text-red-600";
+    if (quantity <= 20) return "bg-orange-100 text-orange-600";
     return "bg-yellow-100 text-yellow-600";
   };
 
@@ -145,7 +145,7 @@ const LowStocks: React.FC = () => {
                       {item.brand}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      ${item.price.toFixed(2)}
+                      Rwf{item.price.toFixed(2)}
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">
                       {item.unit}

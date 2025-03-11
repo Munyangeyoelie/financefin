@@ -149,7 +149,7 @@ const ExpenseList: React.FC = () => {
             <table>
               <tr><th>ID</th><td>${expense.id}</td></tr>
               <tr><th>Title</th><td>${expense.title}</td></tr>
-              <tr><th>Amount</th><td>$${expense.amount.toFixed(2)}</td></tr>
+              <tr><th>Amount</th><td>Rwf ${expense.amount.toFixed(2)}</td></tr>
               <tr><th>Category</th><td>${expense.category}</td></tr>
               <tr><th>Reference Number</th><td>${
                 expense.reference_number
@@ -471,7 +471,10 @@ const ExpenseList: React.FC = () => {
                 <tr key={expense.id} className="border-t">
                   <td className="px-4 py-2">{expense.id}</td>
                   <td className="px-4 py-2">{expense.title}</td>
-                  <td className="px-4 py-2">${expense.amount.toFixed(2)}</td>
+                  <td className="px-4 py-2">
+                    {" "}
+                    Rwf {expense.amount.toFixed(2)}
+                  </td>
                   <td className="px-4 py-2">{expense.category}</td>
                   <td className="px-4 py-2">{expense.reference_number}</td>
                   <td className="px-4 py-2">
