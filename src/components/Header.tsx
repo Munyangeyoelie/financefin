@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { Search, User } from "lucide-react"; // Assuming lucide-react is installed
 import { useAuth } from "../components/AuthContext"; // Adjust path as needed
 import { supabase } from "../lib/supabase"; // Ensure supabase is initialized
 import Notification from "./Notification"; // Ensure this component exists
+import { Link } from "react-router-dom"; // Import Link for navigation
 
 const Header = () => {
   const { currentUser, logout } = useAuth() || {
@@ -51,23 +52,45 @@ const Header = () => {
           </div>
         </div>
 
-        {/* Right Side: User Info and Logout */}
+        {/* Right Side: User Info and Authentication Options */}
         <div className="flex items-center space-x-4">
           <Notification />
-          <div className="flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
-              <User className="h-5 w-5 text-gray-600" />
-            </div>
-            <span className="text-sm font-medium text-gray-700">
-              Hello, {displayName}
-            </span>
-          </div>
-          <button
-            onClick={logout}
-            className="text-sm text-gray-600 hover:text-gray-800"
-          >
-            Logout
-          </button>
+
+          {currentUser ? (
+            <>
+              {/* Show user info and logout when logged in */}
+              <div className="flex items-center space-x-2">
+                <div className="w-8 h-8 rounded-full bg-gray-200 flex items-center justify-center">
+                  <User className="h-5 w-5 text-gray-600" />
+                </div>
+                <span className="text-sm font-medium text-gray-700">
+                  Hello, {displayName}
+                </span>
+              </div>
+              <button
+                onClick={logout}
+                className="text-sm text-gray-600 hover:text-gray-800"
+              >
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              {/* Show login and signup links when not logged in */}
+              <Link
+                to="/login"
+                className="text-sm text-gray-600 hover:text-gray-800"
+              >
+                Logout
+              </Link>
+              <Link
+                to="/signup"
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-500 rounded-md hover:bg-blue-600"
+              >
+                Sign Up
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </header>

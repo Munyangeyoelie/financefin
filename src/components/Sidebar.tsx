@@ -8,8 +8,6 @@ import {
   AlertCircle,
   Boxes,
   List,
-  ShoppingCart,
-  RotateCcw,
   Receipt,
 } from "lucide-react";
 
