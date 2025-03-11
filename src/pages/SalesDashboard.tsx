@@ -45,6 +45,7 @@ const SalesDashboard = () => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [currentOrder, setCurrentOrder] = useState(null);
+  const printRef = useRef(null);
 
   const [newOrder, setNewOrder] = useState({
     customer_name: "",
