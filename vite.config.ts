@@ -1,22 +1,10 @@
-import { fileURLToPath, URL } from 'node:url'
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
 
-import { defineConfig } from 'vite'
-import vue from '@vitejs/plugin-vue'
-import vueDevTools from 'vite-plugin-vue-devtools'
-
-import tailwindcss from '@tailwindcss/vite'
-
-// https://vite.dev/config/
 export default defineConfig({
-  base: "/financefin/",
-  plugins: [vue(), vueDevTools(), tailwindcss()],
-  
-  resolve: {
-    alias: {
-      '@': fileURLToPath(new URL('./src', import.meta.url)),
-    },
-  },
+  plugins: [react()],
+  base: '/financefin/', // Add this line - match it to your deployment subdirectory
   build: {
     chunkSizeWarningLimit: 1000, // 1000 KB (1 MB)
   },
-})
+});
